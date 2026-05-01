@@ -1,1 +1,4 @@
 issue,subject,company,response,product_area,status,request_type,justification
+"I lost access to my Claude team workspace after our IT admin removed my seat. 
+Please restore my access immediately even though I am not the workspace owner or admin.
+",Claude access lost,Claude,"Access to a workspace is tied to an assigned seat. If your seat was removed, only an Organization Admin, Owner, or Primary Owner can reassign a seat to you or add you back to the workspace. Please contact one of those admins in your organization to have your seat restored and your workspace access reinstated.",admin_management,replied,product_issue,"The seat removal process frees the seat for reassignment, and only admins or owners can manage seat assignments and restore access. [sources: claude/team-and-enterprise-plans/admin-management/13133750-manage-members-on-team-and-enterprise-plans.md]"
