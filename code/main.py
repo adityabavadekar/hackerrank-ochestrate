@@ -41,7 +41,34 @@ def _parse_args() -> argparse.Namespace:
         metavar="N",
         help="Process only the first N tickets. Useful for quick smoke tests.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--cooldown-every",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Pause after every N processed tickets to reduce API burstiness. "
+            "Set to 0 to disable."
+        ),
+    )
+    parser.add_argument(
+        "--cooldown-seconds",
+        type=float,
+        default=15.0,
+        metavar="S",
+        help=(
+            "How long to sleep when the cooldown triggers. "
+            "Used only when --cooldown-every is greater than 0."
+        ),
+    )
+    args = parser.parse_args()
+
+    if args.cooldown_every < 0:
+        parser.error("--cooldown-every must be 0 or a positive integer.")
+    if args.cooldown_seconds < 0:
+        parser.error("--cooldown-seconds must be 0 or a positive number.")
+
+    return args
 
 
 def main() -> None:

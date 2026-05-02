@@ -1,9 +1,10 @@
-"""Centralized logger with colorama-colored output for structured, level-tagged console logging."""
+"""Centralized logger with console and file handlers."""
 
 import logging
 import sys
 
 from colorama import Fore, Style, init
+from . import config
 
 init(autoreset=True)
 
@@ -40,8 +41,20 @@ class _ColorFormatter(logging.Formatter):
         return f"{prefix} {message}"
 
 
+class _PlainFormatter(logging.Formatter):
+    """Formats log records for persistent file logging."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        timestamp = self.formatTime(record, "%Y-%m-%d %H:%M:%S")
+        tag = _LEVEL_TAGS.get(record.levelno, record.levelname)
+        message = record.getMessage()
+        if record.exc_info:
+            message += "\n" + self.formatException(record.exc_info)
+        return f"{timestamp} [{tag}] {record.name}: {message}"
+
+
 def get_logger(name: str = "orchestrate") -> logging.Logger:
-    """Returns a named logger configured with colored console output.
+    """Returns a named logger configured with console and file output.
 
     Idempotent: calling twice with the same name reuses the existing logger
     instead of stacking handlers.
@@ -58,9 +71,16 @@ def get_logger(name: str = "orchestrate") -> logging.Logger:
         return logger
 
     logger.setLevel(logging.DEBUG)
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(_ColorFormatter())
-    logger.addHandler(handler)
+
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setFormatter(_ColorFormatter())
+    logger.addHandler(console_handler)
+
+    config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(config.APP_LOG_FILE, encoding="utf-8")
+    file_handler.setFormatter(_PlainFormatter())
+    logger.addHandler(file_handler)
+
     logger.propagate = False
 
     return logger

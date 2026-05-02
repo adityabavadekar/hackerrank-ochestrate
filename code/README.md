@@ -1,59 +1,257 @@
-# HackerRank Orchestrate: AI Triage Agent
+# HackerRank Orchestrate Support Agent
 
-This is the source code for the AI Support Agent built for the HackerRank Orchestrate 24-hour hackathon (May 2026).
+This directory contains the final Python submission for the HackerRank Orchestrate hackathon.
 
-## Overview
-This agent processes customer support tickets and autonomously categorizes, resolves, or escalates them using a multi-stage LLM pipeline.
-It leverages a **Hybrid Retrieval-Augmented Generation (RAG)** approach:
-1. **Gate (Stage 1):** Pre-LLM safety checks for prompt injection and hard keyword-based escalation (fraud, legal, data breach).
-2. **Retriever (Stage 2):** Fast, cached BM25 + dense vector hybrid retrieval over the provided `data/` knowledge corpus, including dynamic metadata extraction and deduplication.
-3. **LLM Triage (Stage 3):** A two-agent sequential workflow. A **Router Agent** strictly categorizes the ticket and assesses confidence. If safe to proceed, a **Responder Agent** drafts the final user-facing reply grounded *only* in the retrieved context.
+The agent triages support tickets across:
 
-## Requirements & Setup
+- HackerRank
+- Claude
+- Visa
 
-This project uses `uv` for lightning-fast dependency management.
+It uses only the provided corpus in `data/` and produces the required CSV output for `support_tickets/support_tickets.csv`.
 
-1. Install dependencies from the lockfile:
-   ```bash
-   uv sync
-   ```
-2. Activate the virtual environment:
-   ```bash
-   source .venv/bin/activate
-   ```
-3. Set up your environment variables. Copy the example file and add your API keys:
-   ```bash
-   cp ../.env.example ../.env
-   ```
-   *Note: Ensure you set `LLM_MODEL` (e.g., `anthropic/claude-haiku-3-5` or `openai/gpt-4o`) and the corresponding provider API key (e.g., `ANTHROPIC_API_KEY`).*
+## Architecture
 
-## Running the Pipeline
-
-The primary entry point is `code/main.py`, which is optimized for fast CLI invocation.
-
-To run the pipeline on the default `support_tickets.csv` and generate `output.csv`:
-
-```bash
-# From the repository root:
-python -m code.main
+```mermaid
+graph TD
+    A([Input Ticket]) --> B[pii.py<br>PII Masking]
+    B --> C{gate.py<br>Safety & Valid Check}
+    C -- "Blocked" --> D([Early Result])
+    C -- "Passed" --> E[retriever.py<br>Hybrid Retrieval]
+    E --> F{agent.py<br>LLM Router}
+    F -- "Escalate/Invalid" --> G([Triage Result])
+    F -- "Product Issue" --> H[agent.py<br>LLM Responder]
+    H --> G
+    D --> I{translator.py<br>Post-Processing}
+    G --> I
+    I --> J([output_writer.py<br>Output CSV])
+    
+    classDef file fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef logic fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    class B,E,H,I,J file;
+    class C,F logic;
 ```
 
-### Options:
+The pipeline is organized into six stages:
 
-- **Specify a custom input/output file:**
-  ```bash
-  python -m code.main --input custom_tickets.csv --output results.csv
-  ```
-- **Override the LLM model on the fly:**
-  ```bash
-  python -m code.main --model "openai/gpt-4o"
-  ```
-- **Smoke test on a small subset of tickets (e.g., first 5):**
-  ```bash
-  python -m code.main --tickets 5
-  ```
+1. `gate.py`
+   Pre-LLM safety and invalid-request filtering:
+   - regex checks
+   - RapidFuzz fuzzy invalid/off-topic matching
+   - Detoxify toxicity signal
+   - zero-shot invalid/off-topic classification with `facebook/bart-large-mnli`
+   - optional Llama-Guard safety check
 
-Run `python -m code.main --help` to see all available options.
+2. `retriever.py`
+   Hybrid retrieval over the local support corpus:
+   - BM25
+   - sentence-transformer dense retrieval
+   - cross-encoder reranking
+   - per-company namespaces
 
-## Determinism
-To ensure maximum reproducibility, this agent runs with LLM temperature strictly pinned to `0.0` and utilizes explicit seed parameters (`seed=42`) via the LiteLLM wrapper. Document embeddings are deterministically cached to local disk via SHA256 hashes to guarantee stable context retrieval.
+3. `agent.py`
+   Two-stage LLM triage:
+   - router
+   - responder
+
+4. `pii.py`
+   PII masking for ticket text before external LLM/safety-model calls:
+   - Presidio-first
+   - regex fallback and structured-secret masking
+
+5. `translator.py`
+   Optional post-processing for non-English tickets:
+   - detects ticket language with `langdetect`
+   - translates only the final `response`
+   - keeps `justification` in English
+   - uses cached translation calls
+
+6. `output_writer.py`
+   Writes the final CSV in the required format.
+
+## LLM Layer
+
+This project uses **LiteLLM** as the single LLM gateway.
+
+That means the pipeline can run against different providers without changing application logic. The active model is selected through environment variables or `--model`.
+
+Examples:
+
+- `anthropic/claude-haiku-3-5`
+- `openai/gpt-4o`
+- `openrouter/...`
+
+The wrapper lives in [llm.py](/home/adi/hackathons/hackerrank-orchestrate/code/llm.py).
+
+## Setup
+
+From the repository root:
+
+```bash
+uv sync
+cp .env.example .env
+```
+
+Set the model and matching provider key in `.env`.
+
+Typical variables:
+
+```bash
+LLM_MODEL=anthropic/claude-haiku-3-5
+ANTHROPIC_API_KEY=...
+```
+
+If you use another provider, set the corresponding API key expected by LiteLLM.
+
+## Run The Pipeline
+
+Default full run:
+
+```bash
+uv run python -m code.main
+```
+
+Custom input/output:
+
+```bash
+uv run python -m code.main \
+  --input support_tickets/support_tickets.csv \
+  --output support_tickets/output.csv
+```
+
+Run a smaller smoke test:
+
+```bash
+uv run python -m code.main --tickets 5
+```
+
+Override the model:
+
+```bash
+uv run python -m code.main --model openai/gpt-4o
+```
+
+Add cooldowns to reduce rate-limit bursts:
+
+```bash
+uv run python -m code.main \
+  --cooldown-every 4 \
+  --cooldown-seconds 20
+```
+
+See all CLI options:
+
+```bash
+uv run python -m code.main --help
+```
+
+## Output
+
+The main output file is:
+
+```bash
+support_tickets/output.csv
+```
+
+It contains:
+
+- `status`
+- `product_area`
+- `response`
+- `justification`
+- `request_type`
+
+## Evaluate On The Sample Set
+
+To compare a generated sample output against the expected sample labels:
+
+```bash
+uv run python -m code.eval_sample \
+  --expected support_tickets/sample_support_tickets.csv \
+  --actual support_tickets/sample_output.csv \
+  -v
+```
+
+### How to read the score
+
+If you see something like:
+
+- `Status accuracy: 90%`
+- `Request type accuracy: 90%`
+- `Product area accuracy: 0%`
+- `Weighted score: 73.5%`
+
+that means:
+
+- routing is mostly right
+- request classification is mostly right
+- `product_area` is currently the weakest field
+
+In other words, a score like `73.5%` does **not** mean the whole system is broken. It usually means the pipeline is functioning, but the taxonomy / product-area mapping still needs work.
+
+## Debug Retrieval
+
+Interactive retrieval debugger:
+
+```bash
+uv run python -m code.retriever_debug
+```
+
+Example:
+
+```bash
+uv run python -m code.retriever_debug \
+  --company HACKERRANK \
+  --top-k 5 \
+  --threshold 0.45
+```
+
+It prints:
+
+- whether the threshold passed
+- top retrieved documents
+- scores
+- product areas
+- short previews
+
+It also writes a local debug log under `logs/`.
+
+## Logging
+
+Application logs are written to:
+
+```bash
+logs/orchestrate.log
+```
+
+The logger configuration is centralized in:
+
+- [config.py](/home/adi/hackathons/hackerrank-orchestrate/code/config.py)
+- [logger.py](/home/adi/hackathons/hackerrank-orchestrate/code/logger.py)
+
+## Main Libraries Used
+
+Core pipeline:
+
+- `litellm`
+- `sentence-transformers`
+- `transformers`
+- `rank-bm25`
+- `numpy`
+- `scikit-learn`
+
+Safety / validation:
+
+- `detoxify`
+- `RapidFuzz`
+- `presidio-analyzer`
+- `presidio-anonymizer`
+
+Utilities:
+
+- `langdetect`
+- `python-dotenv`
+- `PyYAML`
+- `markdownify`
+- `lxml`
+- `colorama`

@@ -1,5 +1,6 @@
 """Writes the final output CSV with one row per processed ticket."""
 
+from code.models import Company
 import csv
 from pathlib import Path
 from typing import List, Tuple
@@ -20,6 +21,17 @@ _FIELDNAMES = [
     "justification",
 ]
 
+def map_company(company: Company) -> str:
+    match company:
+        case Company.HACKERRANK:
+            return "HackerRank"
+        case Company.CLAUDE:
+            return "Claude"
+        case Company.VISA:
+            return "Visa"
+        case Company.NONE:
+            return "None"
+
 
 def write(results: List[Tuple[SupportTicket, TriageResult]], output_path: Path) -> None:
     """Writes all triage results to a CSV file, creating parent dirs if needed.
@@ -37,10 +49,10 @@ def write(results: List[Tuple[SupportTicket, TriageResult]], output_path: Path) 
             writer.writerow({
                 "issue": ticket.issue,
                 "subject": ticket.subject or "",
-                "company": ticket.company.value,
+                "company": map_company(ticket.company),
                 "response": result.response,
                 "product_area": result.product_area,
-                "status": result.status.value,
+                "status": result.status.to_expected_form(),
                 "request_type": result.request_type.value,
                 "justification": result.justification,
             })

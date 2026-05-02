@@ -8,6 +8,12 @@ class Status(str, Enum):
     REPLIED = "replied"
     ESCALATED = "escalated"
 
+    def to_expected_form(self):
+        if self == Status.REPLIED:
+            return "Replied"
+        else:
+            return "Escalated"
+
 
 class RequestType(str, Enum):
     PRODUCT_ISSUE = "product_issue"
@@ -16,12 +22,21 @@ class RequestType(str, Enum):
     INVALID = "invalid"
 
 
-
 class Company(str, Enum):
-    HACKERRANK = "HackerRank"
-    CLAUDE = "Claude"
-    VISA = "Visa"
-    NONE = "None"
+    HACKERRANK = "HACKERRANK"
+    CLAUDE = "CLAUDE"
+    VISA = "VISA"
+    NONE = "NONE"
+
+    @staticmethod
+    def try_from_str(value: str) -> "Company":
+        value = value.upper()
+        if value == "GENERAL":
+            return Company.NONE
+        try:
+            return Company(value)
+        except ValueError:
+            return Company.NONE
 
 
 @dataclass(frozen=True)
@@ -32,6 +47,8 @@ class SupportTicket:
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
 
     def full_text(self) -> str:
+        if self.issue == self.subject:
+            return self.issue
         return f"{self.subject or ''} {self.issue}".strip()
 
 
@@ -42,6 +59,7 @@ class TriageResult:
     response: str
     justification: str
     request_type: RequestType
+
 
 @dataclass(frozen=True)
 class Document:
@@ -73,3 +91,4 @@ class SourceType(str, Enum):
     CLAUDE = "claude"
     HACKERRANK = "hackerrank"
     VISA = "visa"
+

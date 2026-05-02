@@ -8,6 +8,7 @@ import unicodedata
 from typing import Union
 
 from .logger import get_logger
+from . import config
 from .models import (
     RequestType,
     Status,
@@ -69,10 +70,19 @@ def merge_sub_results(results: List[TriageResult]) -> TriageResult:
     if any_escalated:
         logger.info("Multi-intent merge: escalating because at least one sub-issue escalated")
 
+    # Pick the most informative sub-result: prefer escalated+specific, then any specific, then first
+    def _is_specific(r: TriageResult) -> bool:
+        return r.product_area != "general" and r.request_type != RequestType.INVALID
+
+    representative = next(
+        (r for r in results if r.status == Status.ESCALATED and _is_specific(r)),
+        next((r for r in results if _is_specific(r)), results[0])
+    )
+
     return TriageResult(
         status=merged_status,
-        product_area=results[0].product_area,
-        request_type=results[0].request_type,
+        product_area=representative.product_area,
+        request_type=representative.request_type,
         response=combined_response,
         justification=combined_justification,
     )
@@ -309,7 +319,7 @@ def _fill_missing_fields(data: Dict[str, Any]) -> Dict[str, Any]:
         "status": Status.ESCALATED.value,
         "product_area": "general",
         "request_type": RequestType.PRODUCT_ISSUE.value,
-        "response": "Unable to generate a response. This ticket has been escalated.",
+        "response": config.ESCALATION_RESPONSE,
         "justification": "Missing field filled with safe default.",
         "confidence": 1,
     }
@@ -372,11 +382,17 @@ def _apply_confidence_override(result: TriageResult, data: Dict[str, Any]) -> Tr
     return result
 
 
-def _escalation_fallback(reason: str) -> TriageResult:
+def _escalation_fallback(
+    reason: str,
+    product_area: str = "general",
+    request_type: RequestType = RequestType.PRODUCT_ISSUE,
+    status: Status = Status.ESCALATED,
+    response: str = config.ESCALATION_RESPONSE,
+) -> TriageResult:
     return TriageResult(
-        status=Status.ESCALATED,
-        product_area="general",
-        request_type=RequestType.PRODUCT_ISSUE,
-        response="Your request has been escalated for human review.",
+        status=status,
+        product_area=product_area,
+        request_type=request_type,
+        response=response,
         justification=reason,
     )

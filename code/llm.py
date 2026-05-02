@@ -9,6 +9,7 @@ from litellm import completion, RateLimitError, AuthenticationError, BadRequestE
 
 from .logger import get_logger
 from . import config
+from .cache import disk, lru
 
 logger = get_logger(__name__)
 
@@ -63,6 +64,9 @@ def call(
     is picked up automatically by LiteLLM from the environment. No configuration
     beyond setting the right key is needed to switch providers.
 
+    Responses are disk-cached (key = system+user+model+tokens+temp) so identical
+    prompts never hit the API twice. Cache is bypassed when temperature > 0.
+
     Args:
         system: System prompt text.
         user: User message text (the grounded prompt).
@@ -80,6 +84,42 @@ def call(
     resolved_model = model or _get_model()
     resolved_max_tokens = max_tokens or _get_max_tokens()
     resolved_temperature = temperature if temperature is not None else _get_temperature()
+    return _call_cached(system, user, resolved_model, resolved_max_tokens, resolved_temperature)
+
+
+def _call_cached(
+    system: str,
+    user: str,
+    resolved_model: str,
+    resolved_max_tokens: int,
+    resolved_temperature: float,
+) -> str:
+    """Routes through disk cache for deterministic (temp=0) calls; bypasses for temp>0."""
+    if resolved_temperature > 0:
+        # Non-deterministic output — skip cache entirely.
+        return _call_uncached(system, user, resolved_model, resolved_max_tokens, resolved_temperature)
+    return _call_cached_deterministic(system, user, resolved_model, resolved_max_tokens, resolved_temperature)
+
+
+@disk("llm")
+def _call_cached_deterministic(
+    system: str,
+    user: str,
+    resolved_model: str,
+    resolved_max_tokens: int,
+    resolved_temperature: float,
+) -> str:
+    """Disk-cached inner call for deterministic (temperature=0) prompts."""
+    return _call_uncached(system, user, resolved_model, resolved_max_tokens, resolved_temperature)
+
+
+def _call_uncached(
+    system: str,
+    user: str,
+    resolved_model: str,
+    resolved_max_tokens: int,
+    resolved_temperature: float,
+) -> str:
 
     messages = [
         {"role": "system", "content": system},
