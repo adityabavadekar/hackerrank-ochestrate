@@ -75,10 +75,11 @@ Your goal is to generate a clear, helpful, and professional response to the user
     - Do NOT use slang or casual phrases.
     - Do NOT include apologies unless the situation clearly warrants it.
 6. Your justification MUST:
-    - Be concise (1–2 sentences maximum).
+    - Be concise (1–2 sentences maximum). Minimal 1 sentence required other than the sources.
     - Explain why the response is correct based on the CONTEXT.
     - Include source references using this format:
         [sources: <id>;<id>;<id>]
+    - Always use [sources: ] format for sources. Never repeat this block.
     - Do not repeat same source. Only 1 source block is allowed which should contain all source you used for the response.
 7. Your response should maintain a professional, polite, and neutral tone at all times.
 """
@@ -229,6 +230,15 @@ class TriageAgent:
         request_type_str = router_data.get("request_type", "product_issue")
         confidence = router_data.get("confidence", 0)
 
+        # High-confidence bypass: if the router is certain this is a real support
+        # ticket, attempt to answer it even though retrieval was weak.
+        if confidence >= 4:
+            logger.info(
+                "[%s] Low-retrieval bypass: router confidence=%d >= 4, running responder (score=%.3f)",
+                ticket.id, confidence, best_score,
+            )
+            return self._run_responder(ticket, retrieved_docs, router_data)
+
         justification = (
             f"Retrieval confidence too low to answer safely (best match score: {best_score:.2f}). "
             f"Router classified this as {request_type_str} in {product_area}. "
@@ -358,7 +368,8 @@ class TriageAgent:
 
         # Remove all raw source blocks and append a single unified block
         justification = re.sub(r'\s*\[sources?:?[^\]]+\]', '', justification, flags=re.IGNORECASE).strip()
-        justification += f" [sources: {';'.join(sorted(set(cleaned_sources)))}]"
+        if len(cleaned_sources) > 0:
+            justification += f" [sources: {';'.join(sorted(set(cleaned_sources)))}]"
 
         return TriageResult(
             status=Status(router_data["status"]),
